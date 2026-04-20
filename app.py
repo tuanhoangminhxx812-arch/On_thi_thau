@@ -233,11 +233,13 @@ def load_data(file_path):
     return questions
 
 # 1. Quản lý File và chọn Chủ đề
-data_dir = "./"
-files = [f for f in os.listdir(data_dir) if f.endswith('.xls') or f.endswith('.xlsx') and not f.startswith('~')]
+import sys
+# Lấy đường dẫn chính xác của thư mục code ứng dụng để tránh lỗi khi deploy lên web
+data_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+files = [f for f in os.listdir(data_dir) if (f.endswith('.xls') or f.endswith('.xlsx')) and not f.startswith('~')]
 
 if not files:
-    st.error("Không tìm thấy tệp Excel nào trong thư mục.")
+    st.error(f"Không tìm thấy tệp Excel nào trong thư mục: {data_dir}")
     st.stop()
 
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3303/3303319.png", width=100)
