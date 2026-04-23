@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import random
 
 st.set_page_config(page_title="Ứng dụng Học Trắc Nghiệm", page_icon="🎓", layout="wide")
 
@@ -168,12 +169,20 @@ st.markdown("""
 
 
 @st.cache_data
-def load_data(file_path):
+def get_sheets(file_path):
+    if file_path.endswith('.xls'):
+        xl = pd.ExcelFile(file_path, engine='xlrd')
+    else:
+        xl = pd.ExcelFile(file_path, engine='openpyxl')
+    return xl.sheet_names
+
+@st.cache_data
+def load_data(file_path, sheet_name):
     # Đọc dữ liệu với engine tương ứng dựa vào phần mở rộng
     if file_path.endswith('.xls'):
-        df = pd.read_excel(file_path, engine='xlrd')
+        df = pd.read_excel(file_path, sheet_name=sheet_name, engine='xlrd')
     else:
-        df = pd.read_excel(file_path, engine='openpyxl')
+        df = pd.read_excel(file_path, sheet_name=sheet_name, engine='openpyxl')
         
     questions = []
     current_q = None
@@ -244,47 +253,62 @@ if not files:
 
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3303/3303319.png", width=100)
 st.sidebar.title("📚 Chủ Đề Bài Học")
-selected_file = st.sidebar.radio("Chọn chủ đề:", files, format_func=lambda x: x.split('.')[0])
+selected_file = st.sidebar.radio("Chọn bộ đề:", files, format_func=lambda x: x.split('.')[0])
 
 # Dữ liệu theo chủ đề
 file_path = os.path.join(data_dir, selected_file)
-questions = load_data(file_path)
+sheets = get_sheets(file_path)
+selected_sheet = st.sidebar.radio("Chọn chủ đề (sheet):", sheets)
+
+questions = load_data(file_path, selected_sheet)
 
 if not questions:
-    st.warning("Xin lỗi, không có câu hỏi nào được lấy từ file được chọn.")
+    st.warning("Xin lỗi, không có câu hỏi nào được lấy từ file và sheet được chọn.")
     st.stop()
 
-st.title(f"📖 {selected_file.split('.')[0]}")
+st.title(f"📖 {selected_sheet} - {selected_file.split('.')[0]}")
 
 # 2. Khởi tạo trạng thái Session
-if 'current_topic' not in st.session_state or st.session_state.current_topic != selected_file:
-    st.session_state.current_topic = selected_file
+topic_key = f"{selected_file}_{selected_sheet}"
+if 'current_topic' not in st.session_state or st.session_state.current_topic != topic_key:
+    st.session_state.current_topic = topic_key
     st.session_state.current_q_index = 0
     st.session_state.checked = False
+    
+    # Xáo trộn câu hỏi
+    shuffled_qs = list(questions)
+    random.shuffle(shuffled_qs)
+    st.session_state.session_questions = shuffled_qs
 
 q_index = st.session_state.current_q_index
+session_questions = st.session_state.session_questions
 
 # Kết thúc bài
-if q_index >= len(questions):
+if q_index >= len(session_questions):
     st.balloons()
     st.success("🎉 Bạn đã hoàn thành toàn bộ câu hỏi của chủ đề này!")
     if st.button("Làm lại từ đầu", type="primary"):
         st.session_state.current_q_index = 0
         st.session_state.checked = False
+        
+        # Xáo trộn lại câu hỏi
+        shuffled_qs = list(questions)
+        random.shuffle(shuffled_qs)
+        st.session_state.session_questions = shuffled_qs
         st.rerun()
     st.stop()
 
-current_q = questions[q_index]
+current_q = session_questions[q_index]
 
 # Progress
-st.progress(q_index / len(questions))
-st.write(f"**Câu {q_index + 1} / {len(questions)}**")
+st.progress(q_index / len(session_questions))
+st.write(f"**Câu {q_index + 1} / {len(session_questions)}**")
 
 # 3. Giao diện hiển thị Câu hỏi và Option
 st.markdown(f"### {current_q['question']}")
 
 options = current_q['options']
-user_choice = st.radio("Chọn đáp án của bạn:", options, index=None, key=f"radio_{q_index}_{selected_file}")
+user_choice = st.radio("Chọn đáp án của bạn:", options, index=None, key=f"radio_{q_index}_{topic_key}")
 
 # 4. Logic Kiểm tra (Check) và Qua câu (Next)
 
