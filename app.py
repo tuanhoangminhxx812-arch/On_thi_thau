@@ -193,21 +193,29 @@ def load_data(file_path, sheet_name):
         if not any(full_row_str):
             continue
             
-        full_row_str = full_row_str + [""] * (5 - len(full_row_str)) # Pad for safety
+        # Đảm bảo có ít nhất 5 cột để tránh lỗi index
+        if len(full_row_str) < 5:
+            full_row_str = full_row_str + [""] * (5 - len(full_row_str))
             
         is_q = False
         is_a = False
         
         # Nhận diện dòng Câu hỏi (Q) và Trả lời (A)
-        if full_row_str[0].upper() == 'Q':
+        # Hỗ trợ cả hai định dạng: Q/A ở cột 0 hoặc cột 1
+        if full_row_str[0].upper() == 'Q' or full_row_str[1].upper() == 'Q':
             is_q = True
-        elif full_row_str[0].upper() == 'A':
+        elif full_row_str[0].upper() == 'A' or full_row_str[1].upper() == 'A':
             is_a = True
         elif full_row_str[0] == "" and full_row_str[1].lower().strip('.') in ['a', 'b', 'c', 'd', 'e', 'f', 'g']:
             is_a = True
             
         if is_q:
-            q_text = full_row_str[2] if (full_row_str[1].isdigit() and full_row_str[2] != "") else full_row_str[1]
+            # Lấy text câu hỏi: Nếu Q ở cột 1 thì text thường ở cột 2, ngược lại ở cột 1 hoặc 2
+            if full_row_str[1].upper() == 'Q':
+                q_text = full_row_str[2]
+            else:
+                q_text = full_row_str[2] if (full_row_str[1].isdigit() and full_row_str[2] != "") else full_row_str[1]
+                
             if not q_text and len(full_row_str) > 2:
                 q_text = full_row_str[2]
             
@@ -223,7 +231,10 @@ def load_data(file_path, sheet_name):
             ans_text = ""
             # Xử lý trường hợp có "A, a, Nội dung" và "A, Nội dung"
             is_enumerator = full_row_str[1].lower().strip('.') in ['a', 'b', 'c', 'd', 'e', 'f', 'g']
-            if is_enumerator and len(full_row_str) > 2 and full_row_str[2] != "":
+            
+            if full_row_str[1].upper() == 'A':
+                ans_text = full_row_str[2]
+            elif is_enumerator and len(full_row_str) > 2 and full_row_str[2] != "":
                 ans_text = full_row_str[2]
             else:
                 ans_text = full_row_str[1]
@@ -231,7 +242,9 @@ def load_data(file_path, sheet_name):
             if ans_text:
                 current_q["options"].append(ans_text)
                 # Kiểm tra đánh dấu đáp án đúng "x" hoặc "X" ở các cột sau
-                for cell in full_row_str[1:]:
+                # Bắt đầu tìm từ cột sau cột chứa nội dung đáp án
+                start_col = 3 if (full_row_str[1].upper() == 'A' or is_enumerator) else 2
+                for cell in full_row_str[start_col:]:
                     if str(cell).lower() == 'x':
                         current_q["correct_index"] = len(current_q["options"]) - 1
                         break
@@ -245,18 +258,62 @@ def load_data(file_path, sheet_name):
 import sys
 # Lấy đường dẫn chính xác của thư mục code ứng dụng để tránh lỗi khi deploy lên web
 data_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
-files = [f for f in os.listdir(data_dir) if (f.endswith('.xls') or f.endswith('.xlsx')) and not f.startswith('~')]
+kd_dir = os.path.join(data_dir, "2025.08.29 KD (Phu luc 1) Bo de QTKD 2025")
 
-if not files:
-    st.error(f"Không tìm thấy tệp Excel nào trong thư mục: {data_dir}")
+# Quét tệp ở thư mục gốc
+root_files = [f for f in os.listdir(data_dir) if (f.endswith('.xls') or f.endswith('.xlsx')) and not f.startswith('~')]
+
+# Quét tệp ở thư mục Kinh doanh
+kd_files = []
+if os.path.exists(kd_dir):
+    kd_files = [f for f in os.listdir(kd_dir) if (f.endswith('.xls') or f.endswith('.xlsx')) and not f.startswith('~')]
+
+# Phân loại bộ đề
+category_map = {
+    "🏗️ Đấu thầu": [],
+    "📊 Kế toán (Nâng giữ bậc)": [],
+    "💼 Kinh doanh": []
+}
+
+for f in root_files:
+    full_path = os.path.join(data_dir, f)
+    if "Đấu thầu" in f:
+        category_map["🏗️ Đấu thầu"].append({"name": f, "path": full_path})
+    elif any(x in f.lower() for x in ["nâng bậc", "giữ bậc", "vănhóadoanhnghiệp", "attt"]):
+        category_map["📊 Kế toán (Nâng giữ bậc)"].append({"name": f, "path": full_path})
+
+for f in kd_files:
+    full_path = os.path.join(kd_dir, f)
+    category_map["💼 Kinh doanh"].append({"name": f, "path": full_path})
+
+# Xóa các category không có file
+category_map = {k: v for k, v in category_map.items() if v}
+
+if not category_map:
+    st.error(f"Không tìm thấy tệp Excel nào trong các thư mục học tập.")
     st.stop()
 
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3303/3303319.png", width=100)
-st.sidebar.title("📚 Chủ Đề Bài Học")
-selected_file = st.sidebar.radio("Chọn bộ đề:", files, format_func=lambda x: x.split('.')[0])
+st.sidebar.title("📚 Phân Hệ Học Tập")
+
+# Chọn Phân hệ
+selected_category = st.sidebar.radio("Chọn phân hệ:", list(category_map.keys()))
+
+# Lấy danh sách file trong phân hệ đã chọn
+category_files = category_map[selected_category]
+file_names = [f["name"] for f in category_files]
+
+selected_file_name = st.sidebar.radio(
+    "Chọn bộ đề:", 
+    file_names, 
+    format_func=lambda x: os.path.splitext(x)[0]
+)
+
+# Lấy đường dẫn file được chọn
+selected_file_obj = next(f for f in category_files if f["name"] == selected_file_name)
+file_path = selected_file_obj["path"]
 
 # Dữ liệu theo chủ đề
-file_path = os.path.join(data_dir, selected_file)
 sheets = get_sheets(file_path)
 selected_sheet = st.sidebar.radio("Chọn chủ đề (sheet):", sheets)
 
@@ -266,10 +323,11 @@ if not questions:
     st.warning("Xin lỗi, không có câu hỏi nào được lấy từ file và sheet được chọn.")
     st.stop()
 
-st.title(f"📖 {selected_sheet} - {selected_file.split('.')[0]}")
+st.title(f"📖 {selected_sheet}")
+st.subheader(f"Bộ đề: {os.path.splitext(selected_file_name)[0]}")
 
 # 2. Khởi tạo trạng thái Session
-topic_key = f"{selected_file}_{selected_sheet}"
+topic_key = f"{selected_file_name}_{selected_sheet}"
 if 'current_topic' not in st.session_state or st.session_state.current_topic != topic_key:
     st.session_state.current_topic = topic_key
     st.session_state.current_q_index = 0
